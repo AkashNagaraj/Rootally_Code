@@ -1,9 +1,11 @@
 # References
+# https://manivannan-ai.medium.com/find-the-angle-between-three-points-from-2d-using-python-348c513e2cd
 # https://www.analyticsvidhya.com/blog/2022/03/pose-detection-in-image-using-mediapipe-library/
 # https://theailearner.com/2018/10/15/extracting-and-saving-video-frames-using-opencv-python/
+# Frame rate - https://learnopencv.com/how-to-find-frame-rate-or-frames-per-second-fps-in-opencv-python-cpp/
 
-import os
-import math
+import os,sys
+import math,re
 import numpy as np
 
 import cv2
@@ -28,29 +30,25 @@ def preprocess(video_dir):
     cv2.destroyAllWindows()
 
 
-def get_angle(hip,knee,ankle):
-    
-    # cos(C) = (a^2+b^2-c^2)/2ab
+def distance (X,Y):
+  return math.sqrt((X[0]-Y[0])**2+(X[1]-Y[1])**2)
 
-    a = np.sum((np.array(knee)-np.array(ankle))**2) 
-    b = np.sum((np.array(hip)-np.array(knee))**2) 
-    c = np.sum((np.array(hip)-np.array(ankle))**2) 
-    C = (a**2+b**2-c**2)/(2*a*b)
+def get_angle(Hips,Knee,Ankle):
     
-    print("Vaue of C:",C)
+    A = distance(Knee,Hips)
+    K = distance(Ankle,Hips)
+    H = distance(Ankle,Knee)
     
-    try:
-        angle = np.arccos(C)
-    except:
-        angle = 0
+    theta = (A**2+H**2-K**2)/(2*A*H)
     
-    return angle
+    res = math.degrees(math.acos(theta))
+    return res
 
 
 def get_coordinates(resultant,image_width,image_height):
     
     # We get only left leg values because we assume it is nearest to the camera
-    
+
     left_hip_x_coordinate = resultant.pose_landmarks.landmark[mp.solutions.pose.PoseLandmark.LEFT_HIP].x*image_width
     left_hip_y_coordinate = resultant.pose_landmarks.landmark[mp.solutions.pose.PoseLandmark.LEFT_HIP].y*image_height
 
@@ -78,7 +76,6 @@ def draw_pose_images(i, pose_dir, resultant, draw, display, original_image):
         return original_image, results
 
 
-
 def detectPose(i, image_pose, pose, pose_dir, draw=False, display=False):
 
     original_image = image_pose.copy()
@@ -87,25 +84,55 @@ def detectPose(i, image_pose, pose, pose_dir, draw=False, display=False):
     
     image_height, image_width, _ = image_in_RGB.shape
     hip, knee, ankle = get_coordinates(resultant,image_width,image_height)
-    angle = get_angle(hip,knee,ankle)
+    
+    plt.scatter(hip[0],hip[1],color="blue")
+    plt.imshow(original_image[:,:,::-1]);plt.title("Pose detected Image");plt.axis('off');
+    plt.savefig(pose_dir+"output"+str(i)+".jpg")
 
-    print("Calculated angle is : ",angle)
-
+    angle = get_angle(ankle,knee,hip)
     draw_pose_images(i,pose_dir,resultant,draw,display,original_image)
-
+    
+    return ankle, knee, hip, angle # Subtract an error rate upto n degree
 
 
 def pose_estimation(img_dir,pose_dir):
     
-    #mp_pose = mp.solutions.pose
-    #pose_image = mp_pose.Pose(static_image_mode=True, min_detection_confidence=0.7,min_tracking_confidence=0.7)
-    #mp_drawing = mp.solutions.drawing_utils
+    images = [int(re.findall(r'\d+',word)[0]) for word in os.listdir(img_dir)]
+    images.sort()
+    
+    stretch_count,count,reps = 0,0,0
+    stretch = False
+    stretch_time = 10
+    frame_time = 0.25
 
-    images = os.listdir(img_dir)
-    for idx, img in enumerate(images):
-        image_path = img_dir+"/"+img 
+    for idx, img in enumerate(images[50:75]):
+        image_path = img_dir+"/"+"excercise"+str(img)+".jpg" 
         output = cv2.imread(image_path)
-        detectPose(idx,output,pose_image,pose_dir,draw=True,display=True)
+        ankle, knee, hip, angle = detectPose(idx,output,pose_image,pose_dir,draw=True,display=True)
+        
+        if not stretch:
+            if angle<140 and ankle[0]<knee[0]:
+                if count==0:
+                    print("Starting timer")
+
+                count += 1
+                if count==6:
+                    reps += 1
+                
+                    print("You should stretch now")
+                    stretch = True
+
+                    count = 0
+            else:
+                count = 0
+
+        else:
+            stretch_count += 1
+            if stretch_count*frame_time>=stretch_time:
+                stretch = False
+                print("You can continue the excercise")
+
+    print("Total reps:",reps)        
 
 
 def main():
