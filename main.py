@@ -4,10 +4,10 @@
 # https://theailearner.com/2018/10/15/extracting-and-saving-video-frames-using-opencv-python/
 # Frame rate - https://learnopencv.com/how-to-find-frame-rate-or-frames-per-second-fps-in-opencv-python-cpp/
 
-import os,sys
-import math,re
-import numpy as np
+import time
+import os,sys,math,re
 
+import numpy as np
 import cv2
 import mediapipe as mp
 
@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 
 # Convert the video to images
-def preprocess(video_dir):
+def preprocess(video_dir,image_dir):
     cap = cv2.VideoCapture(video_dir) 
     
     amount_of_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -26,7 +26,7 @@ def preprocess(video_dir):
         ret, frame = cap.read()
         if ret == False:
             break;
-        cv2.imwrite('data/output/excercise'+str(i)+'.jpg',frame)
+        cv2.imwrite(image_dir + 'excercise'+str(i)+'.jpg',frame)
         i+=1
     
     cap.release()
@@ -75,6 +75,7 @@ def draw_pose_images(i, pose_dir, resultant, draw, display, original_image):
         #plt.subplot(121);plt.imshow(image_pose[:,:,::-1]);plt.title("Input Image");plt.axis('off');
         plt.plot(122);plt.imshow(original_image[:,:,::-1]);plt.title("Pose detected Image");plt.axis('off');
         plt.savefig(pose_dir+"output"+str(i)+".jpg")
+        plt.close(figure)
     else:
         return original_image, results
 
@@ -91,9 +92,9 @@ def detectPose(i, image_pose, pose, pose_dir, draw=False, display=False):
     angle = get_angle(ankle,knee,hip)
 
     # Below is for drawing
-    #plt.imshow(original_image[:,:,::-1]);plt.title("Pose detected Image");plt.axis('off');
-    #plt.savefig(pose_dir+"output"+str(i)+".jpg")
-    #draw_pose_images(i,pose_dir,resultant,draw,display,original_image)
+    plt.imshow(original_image[:,:,::-1]);plt.title("Pose detected Image");plt.axis('off');
+    plt.savefig(pose_dir+"output"+str(i)+".jpg")
+    draw_pose_images(i,pose_dir,resultant,draw,display,original_image)
     
     return ankle, knee, hip, angle 
 
@@ -111,6 +112,7 @@ def get_sequence(A):
     resting = 0
     
     relevant_seq = []
+    output_comments = []
 
     while True:
     
@@ -125,9 +127,12 @@ def get_sequence(A):
         # Split sequence to two based on min value
         min_val = min(A[m1:m2])
         min_index = A[m1:m2].index(min_val)
-    
+        
+        comments = []
+
         # Choose sequences greater than 1
         if m2>m1+1:
+            comments += ["Person is excercising"]*(m2-m1)
             sequence1 = A[m1:m1+min_index] 
             sequence2 = A[m1+min_index:m2]
     
@@ -146,21 +151,27 @@ def get_sequence(A):
         
             if incorrect_terms1<threshold and incorrect_terms2<threshold:
                 
-                print("Resting time so far : ",resting)
-                print("Valid sequence : ",A[m1:m2])
-                
-                excercies_count += 1
+                print("Resting time so far : ", resting)
+                #print("Valid sequence : ", A[m1:m2])
+
+                excercise_count += 1
                 resting = 0
                 relevant_seq.append((m1,m2))
+                
 
             # Calculate Reps
-            if excercise_count == total_count_per_rep: # Assume one rep has 10 knee bends
+            elif excercise_count == total_count_per_rep: # Assume one rep has 10 knee bends
+                print("First index is : {}, Last index is : {}".format(first_index,m2))
+                
                 reps += 1
-                excercise_count = 0    
-    
+                excercise_count = 0 
+
+
         elif m2-m1==1:
+            comments += ["Person is resting"]
             resting += 1
         
+        output_comments += comments
         if m2<len(A)-1:
             m1 = m2
         else:
@@ -168,47 +179,23 @@ def get_sequence(A):
         
     print("Relevant sequences are : ",relevant_seq) # Multiply with window size to get all frame indexes
     print("Total reps in the above set is :",reps)
+    
+    return output_comments
 
 
-def calculate_reps(total_angles):
-    window = 5 # total_frames = 6879, approx 25/ sec, now approx 5/sec
+def calculate_reps(total_angles,window):
+    # total_frames = 6879, approx 25/ sec, now approx 5/sec
     new_angles = []
     
     for idx in range(0,len(total_angles),window):
         avg_angle = sum(total_angles[idx:idx+window])/window
         new_angles.append(avg_angle)
-    
-    #print("The angles for the new sequence are :",new_angles)
 
-    get_sequence(new_angles)
+    seq_comments = get_sequence(new_angles)
+    return seq_comments
 
-    """
-    if not stretch:
-            if angle<140 and ankle[0]<knee[0]:
-                if count==0:
-                    print("Starting timer")
 
-                count += 1
-                if count==2:
-                    reps += 1
-
-                    print("You should stretch now")
-                    stretch = True
-
-                    count = 0
-            else:
-                count = 0
-
-        else:
-            stretch_count += 1
-            if stretch_count*frame_time>=stretch_time:
-                stretch = False
-                #print("You can continue the excercise")
-
-    print("Total reps:",reps)
-    """
-
-def pose_estimation(img_dir,pose_dir):
+def pose_estimation(img_dir,pose_dir,n_frames):
     
     images = [int(re.findall(r'\d+',word)[0]) for word in os.listdir(img_dir)]
     images.sort()
@@ -220,7 +207,7 @@ def pose_estimation(img_dir,pose_dir):
     
     total_angles = []
 
-    for idx, img in enumerate(images):
+    for idx, img in enumerate(images[:n_frames]):
         image_path = img_dir+"/"+"excercise"+str(img)+".jpg" 
         output = cv2.imread(image_path)
         try:
@@ -233,22 +220,67 @@ def pose_estimation(img_dir,pose_dir):
     return total_angles
 
 
+def create_video(pose_dir,n_frames):
+    
+    img_arr = []
+
+    images = [int(re.findall(r'\d+',word)[0]) for word in os.listdir(pose_dir)]
+    images.sort()
+
+    for idx, img in enumerate(images[:n_frames]):
+        image_path = pose_dir+"output"+str(img)+".jpg"
+        img = cv2.imread(image_path)
+        height, width, layers = img.shape
+        size = (width,height)
+        img_arr.append(img)
+    
+    out = cv2.VideoWriter('project.avi',cv2.VideoWriter_fourcc(*'DIVX'), 15, size)
+
+    for i in range(len(img_arr)):
+        out.write(img_arr[i])
+    out.release()
+
+
+def add_text(input_dir,output_dir,comments,window):
+    
+    seq_comments = np.repeat(comments,window)
+    images = [int(re.findall(r'\d+',word)[0]) for word in os.listdir(input_dir)]
+    images.sort()
+
+    for idx, img in enumerate(images[:len(seq_comments)]):
+        input_path = input_dir+"/"+"excercise"+str(img)+".jpg"
+        output = cv2.imread(input_path)
+
+        new_image = cv2.putText(img = img,text = seq_comments[idx],org = (100, 615),fontFace = cv2.FONT_HERSHEY_DUPLEX,fontScale = 3.0,color = (0, 0, 0),thickness = 2)
+
+        output_path = output_dir+"/"+"excercise"+str(img)+".jpg"
+        cv2.imwrite(image_path, new_image)
+
+
 def main():
     video_dir = "data/KneeBendVideo.mp4"
     image_dir = "data/raw_img/"
     pose_dir = "data/pose_img/"
-    
-    #preprocess(video_dir)
-    
-    global mp_pose, pose_image, mp_drawing
+    final_dir = "data/final_img"
 
+    n_frames = 150
+    window = 5
+    start = time.time()
+
+    #preprocess(video_dir,image_dir)
+
+    global mp_pose, pose_image, mp_drawing
     mp_pose = mp.solutions.pose
     pose_image = mp_pose.Pose(static_image_mode=True, min_detection_confidence=0.7,min_tracking_confidence=0.7)
     mp_drawing = mp.solutions.drawing_utils
-
-    total_angles = pose_estimation(image_dir,pose_dir)
     
-    calculate_reps(total_angles)
+    total_angles = pose_estimation(image_dir,pose_dir,n_frames)
+    seq_comments = calculate_reps(total_angles,window)
+    print("Time taken - {}".format(time.time()-start))
+
+    add_text(pose_dir,final_dir,seq_comments,window)
+    create_video(final_dir,n_frames)
+
 
 if __name__=="__main__":
     main()
